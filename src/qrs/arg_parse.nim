@@ -3,9 +3,9 @@ import strformat
 from ./utils import log
 
 var p = newParser("CSQ Selector"):
-    help("Compute Illumina run stats from read names")
+    help("Compute alignment stats and run statistics")
     arg("bam", nargs = -1, help="input BAM/CRAM file(s). Glob pattern allowed")
-    option("-o", "--out", help="Output file", default=some("run_stats.tsv"))
+    option("-o", "--out", help="Output file", default=some("QuickRunStats"))
     option("-s", "--subset", help="Read only N reads from each file. Use -1 for all reads", default=some("1000000"))
     option("-q", "--minq", help="Min base quality for stats reporting", default=some("30"))
         

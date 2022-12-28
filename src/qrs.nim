@@ -73,7 +73,7 @@ proc save_gc_stats(x: Table[string, ReadData], outprefix: string) =
 proc save_seq_stats(x: Table[string, ReadData], minQ: int = 30, outprefix: string) =
     let header_persample = &"SAMPLE\tMEAN_READLEN\tMIN_READLEN\tMEAN_BASEQ\tMEDIAN_BASEQ\tPERC_BASES_ABOVE_Q{minQ}\tMEAN_MAPQ\tMEDIAN_MAPQ\tDUP_RATE\tMEAN_READ_GC_PERC\n"
     
-    var persample_out = open(fmt"{outprefix}.per_sample_run.tsv", fmWrite)
+    var persample_out = open(fmt"{outprefix}.reads_stat.tsv", fmWrite)
     persample_out.write(header_persample)
     for sid, sdata in x.pairs:
         let 

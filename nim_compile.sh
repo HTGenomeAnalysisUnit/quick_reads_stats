@@ -1,7 +1,7 @@
 #Compile a static build with no dependencies on hts lib
 #See: https://github.com/brentp/hts-nim#static-builds
 #You need to bind your local nim packages folder as nim_pkg_folder
-pkg_name="readname_stats"
+pkg_name="qrs"
 nim_pkg_folder=$1
 
 singularity exec \
