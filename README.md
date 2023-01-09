@@ -2,7 +2,7 @@
 
 Quick computation of alignment statistic from BAM files.
 
-## Usage 
+## Usage
 
 ```bash
 Usage:
@@ -32,6 +32,8 @@ Sample names are obtained from the header of BAM file(s) directly based on the @
 
 ### read_stats.tsv
 
+Reports statistics collected across analysed reads.
+
 | Column | Description |
 |--------|-------------|
 | SAMPLE | Sample id from the BAM file |
@@ -47,6 +49,8 @@ Sample names are obtained from the header of BAM file(s) directly based on the @
 
 ### rundetails.tsv
 
+Reports for each sample the corresponding run ids (instrument, run, flowcell, lane number)
+
 | Column | Description |
 |--------|-------------|
 | SAMPLE | Sample id from the BAM file |
@@ -56,6 +60,8 @@ Sample names are obtained from the header of BAM file(s) directly based on the @
 | LANE | Lane number extracted from read names |
 
 ### per_sample_run.tsv
+
+Describes how each sample sequencing was distributed across runs, flowcells and lanes.
 
 | Column | Description |
 |--------|-------------|
