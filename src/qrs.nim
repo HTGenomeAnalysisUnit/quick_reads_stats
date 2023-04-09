@@ -16,7 +16,7 @@ import math
 import random
 from os import createDir
 
-const VERSION="0.1"
+const VERSION="0.1.1"
 const READNAMEIDX = (inst: 0, run: 1, flow: 2, lane: 3)
 
 type Region = tuple
@@ -150,8 +150,11 @@ proc main*() =
         for t in targets:
             if not t.name.match(reg_exp): targets.delete(t_idx)
             t_idx += 1
-        
-        if max_reads == -1:
+        for t in targets: 
+            n_mapped += b.idx.stats(t.tid).mapped.int
+            tot_length += t.length.int
+
+        if max_reads == -1 or n_mapped < max_reads:
             #Set the whole target as region to process all reads
             for t in targets:
                 rnd_region.chrom = t.name
@@ -160,9 +163,7 @@ proc main*() =
                 random_idx.add(rnd_region)
         else:
             #Get proportion of read to allocate per target
-            for t in targets: 
-                n_mapped += b.idx.stats(t.tid).mapped.int
-                tot_length += t.length.int
+            
             for t in targets:
                 let target_weight = t.length.int / tot_length 
                 let rnd_per_target = int(max_reads.float * target_weight)
