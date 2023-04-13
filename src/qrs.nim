@@ -58,6 +58,30 @@ proc count_above(x:seq[int], min: int): int =
     for val in x:
         if val >= min: result += 1
 
+proc save_empty_data(sid: string, outprefix: string) =
+    var header: string
+    header = &"SAMPLE\tMEAN_READLEN\tMIN_READLEN\tMEAN_BASEQ\tMEDIAN_BASEQ\tPERC_BASES_ABOVE_Q30\tMEAN_MAPQ\tMEDIAN_MAPQ\tDUP_RATE\tMEAN_READ_GC_PERC\n"
+    var readstats_out = open(fmt"{outprefix}.read_stats.tsv", fmWrite) #read_stats
+    readstats_out.write(header)
+    readstats_out.close()
+
+    let outdir = fmt"{outprefix}.GC_stats"
+    createDir(outdir)
+    header = &"READ_IDX\tGC_PERC\n"
+    var gcperc_out = open(fmt"{outdir}/{sid}.GC_stats.tsv", fmWrite)
+    gcperc_out.write(header)
+    gcperc_out.close()
+
+    header = "SAMPLE\tINSTRUMENT\tRUN\tFLOWCELL\tLANE\n"
+    var details_out = open(fmt"{outprefix}.rundetails.tsv", fmWrite)
+    details_out.write(header)
+    details_out.close()
+
+    #header = "SAMPLE\tN_RUNS\tN_FLOWCELLS\tN_LANES\n"
+    #var persample_out = open(fmt"{outprefix}.per_sample_run.tsv", fmWrite)
+    #persample_out.write(header)
+    #persample_out.close()
+
 proc save_gc_stats(x: Table[string, ReadData], outprefix: string) =
     let header_persample = &"READ_IDX\tGC_PERC\n"
     let outdir = fmt"{outprefix}.GC_stats"
@@ -73,7 +97,7 @@ proc save_gc_stats(x: Table[string, ReadData], outprefix: string) =
 proc save_seq_stats(x: Table[string, ReadData], minQ: int = 30, outprefix: string) =
     let header_persample = &"SAMPLE\tMEAN_READLEN\tMIN_READLEN\tMEAN_BASEQ\tMEDIAN_BASEQ\tPERC_BASES_ABOVE_Q{minQ}\tMEAN_MAPQ\tMEDIAN_MAPQ\tDUP_RATE\tMEAN_READ_GC_PERC\n"
     
-    var persample_out = open(fmt"{outprefix}.reads_stat.tsv", fmWrite)
+    var persample_out = open(fmt"{outprefix}.read_stats.tsv", fmWrite) #read_stats
     persample_out.write(header_persample)
     for sid, sdata in x.pairs:
         let 
@@ -196,6 +220,12 @@ proc main*() =
         if sample_ids.len > 1:
             log("WARN", fmt"More than one sample detected in {inbam}. Skipping this file")
             continue
+
+        if n_mapped == 0:
+            echo fmt"WARNING: No mapped reads found in {inbam}"
+            save_empty_data(mysample, opts.out)
+            continue
+
         samplemeta[mysample] = emptyset
 
         var
