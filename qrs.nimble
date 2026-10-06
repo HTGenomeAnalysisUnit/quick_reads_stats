@@ -1,8 +1,8 @@
 # Package
 
-version       = "0.1.0"
+version       = "0.1.1"
 author        = "edoardo.giacopuzzi"
-description   = "Illumina run stats from read names"
+description   = "Quickly collect essential read-level and alignment stats from Illumina NGS BAM files"
 license       = "MIT"
 srcDir        = "src"
 bin           = @["qrs"]

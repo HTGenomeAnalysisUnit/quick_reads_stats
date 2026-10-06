@@ -1,12 +1,12 @@
 # QRS - Quick Reads Stats
 
-Quick computation of alignment statistic from BAM files.
+Quick computation of read-level and alignment statistics from BAM files.
 
 ## Usage
 
 ```bash
 Usage:
-  CSQ Selector [options] [bam ...]
+  qrs [options] [bam ...]
 
 Arguments:
   [bam ...]        input BAM/CRAM file(s). Glob pattern allowed
@@ -34,38 +34,53 @@ Sample names are obtained from the header of BAM file(s) directly based on the @
 
 Reports statistics collected across analysed reads.
 
-| Column | Description |
-|--------|-------------|
-| SAMPLE | Sample id from the BAM file |
-| MEAN_READLEN | Mean read length across the sampled reads |
-| MIN_READLEN | Minimum read length across the samples reads |
-| MEAN_BASEQ | Mean base quality across all bases in the sampled reads |
-| MEDIAN_BASEQ | Median base quality across all bases in the sampled reads |
-| PERC_BASES_ABOVE_Q{minQ} | Fraction of bases above the value set by `--minQ` |
-| MEAN_MAPQ | Mean mapping quality across the sampled reads |
-| MEDIAN_MAPQ | Median mapping quality across the sampled reads |
-| DUP_RATE | Fraction of duplicated reads across sampled reads (based on read flags) |
-| MEAN_READ_GC_PERC | Mean GC perc across sampled reads |
+| Column                   | Description                                                             |
+| ------------------------ | ----------------------------------------------------------------------- |
+| SAMPLE                   | Sample id from the BAM file                                             |
+| MEAN_READLEN             | Mean read length across the sampled reads                               |
+| MIN_READLEN              | Minimum read length across the samples reads                            |
+| MEAN_BASEQ               | Mean base quality across all bases in the sampled reads                 |
+| MEDIAN_BASEQ             | Median base quality across all bases in the sampled reads               |
+| PERC_BASES_ABOVE_Q{minQ} | Fraction of bases above the value set by `--minQ`                       |
+| MEAN_MAPQ                | Mean mapping quality across the sampled reads                           |
+| MEDIAN_MAPQ              | Median mapping quality across the sampled reads                         |
+| DUP_RATE                 | Fraction of duplicated reads across sampled reads (based on read flags) |
+| MEAN_READ_GC_PERC        | Mean GC perc across sampled reads                                       |
 
 ### rundetails.tsv
 
 Reports for each sample the corresponding run ids (instrument, run, flowcell, lane number)
 
-| Column | Description |
-|--------|-------------|
-| SAMPLE | Sample id from the BAM file |
+| Column     | Description                             |
+| ---------- | --------------------------------------- |
+| SAMPLE     | Sample id from the BAM file             |
 | INSTRUMENT | Instrument id extracted from read names |
-| RUN | Run id extracted from read names |
-| FLOWCELL | Flowcell id extracted from read names |
-| LANE | Lane number extracted from read names |
+| RUN        | Run id extracted from read names        |
+| FLOWCELL   | Flowcell id extracted from read names   |
+| LANE       | Lane number extracted from read names   |
 
 ### per_sample_run.tsv
 
 Describes how each sample sequencing was distributed across runs, flowcells and lanes.
 
-| Column | Description |
-|--------|-------------|
-| SAMPLE | Sample id from the BAM file |
-| N_RUNS | Number of unique sequencing runs detected for the sample based on read names |
-| N_FLOWCELLS | Number of unique flowcells detected for the sample based on read names |
-| N_LANES | Number of unique lanes detected for the sample based on read names |
+| Column      | Description                                                                  |
+| ----------- | ---------------------------------------------------------------------------- |
+| SAMPLE      | Sample id from the BAM file                                                  |
+| N_RUNS      | Number of unique sequencing runs detected for the sample based on read names |
+| N_FLOWCELLS | Number of unique flowcells detected for the sample based on read names       |
+| N_LANES     | Number of unique lanes detected for the sample based on read names           |
+
+## Docker
+
+Build the executable inside a multi-stage image:
+
+```bash
+docker build -t qrs .
+docker run --rm qrs --help
+```
+
+You can use the prebuilt Docker image from GitHub Container Registry:
+
+```bash
+docker run --rm ghcr.io/htgenomeanalysisunit/quick_reads_stats:v0.1.1 --help
+```

@@ -1,3 +1,11 @@
+# Local tests
 test/
+
+# Local build artifacts
 local_compile.sh
 bin/
+
+# codex generated files
+.agents/
+.codex/
+.aws/

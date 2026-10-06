@@ -1,0 +1,60 @@
+name: Publish static release binary
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the release
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          persist-credentials: false
+
+      - name: Build the static Linux x86-64 binary
+        run: |
+          docker run --rm --platform linux/amd64 \
+            --volume "$PWD:/load" \
+            --workdir /load \
+            --entrypoint /usr/local/bin/nsb \
+            brentp/musl-hts-nim:latest \
+            --nimble-file /load/qrs.nimble \
+            -s /load/src/qrs.nim -- -d:danger -d:release
+
+      - name: Verify and package the binary
+        run: |
+          test -x qrs
+          # Reject a dynamic loader or dependencies on shared libraries.
+          readelf --program-headers qrs > "$RUNNER_TEMP/qrs-program-headers.txt"
+          readelf --dynamic qrs > "$RUNNER_TEMP/qrs-dynamic.txt"
+          if grep -q INTERP "$RUNNER_TEMP/qrs-program-headers.txt" \
+            || grep -q '(NEEDED)' "$RUNNER_TEMP/qrs-dynamic.txt"; then
+            echo "QRS must be statically linked." >&2
+            exit 1
+          fi
+          ./qrs --help
+          mkdir -p dist
+          # Copy the container-owned binary into an executable release asset.
+          install -m755 qrs dist/qrs-linux-amd64
+          ./dist/qrs-linux-amd64 --help
+          cd dist
+          sha256sum qrs-linux-amd64 > qrs-linux-amd64.sha256
+
+      - name: Attach the binary and checksum to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          gh release upload "$RELEASE_TAG" \
+            dist/qrs-linux-amd64 \
+            dist/qrs-linux-amd64.sha256 \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
