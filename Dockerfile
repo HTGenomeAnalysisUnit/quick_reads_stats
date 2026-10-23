@@ -24,6 +24,8 @@ RUN apt-get update \
         ca-certificates \
         libhts3 \
         libpcre3 \
+        bash \
+        procps \
     && rm -rf /var/lib/apt/lists/* \
     # hts-nim loads libhts.so, which is normally supplied by libhts-dev.
     && ln -s "$(ldconfig -p | awk '$1 == "libhts.so.3" { print $NF; exit }')" /usr/local/lib/libhts.so \
@@ -32,9 +34,11 @@ RUN apt-get update \
 COPY --from=builder /out/qrs /usr/local/bin/qrs
 COPY LICENSE /usr/share/doc/qrs/LICENSE
 
-# Check the tool runs in the final image
-RUN qrs --help
+# Check the tool and Nextflow task runtime in the final image.
+RUN qrs --help \
+    && /bin/bash -uec 'command -v awk date grep ps sed tail tee >/dev/null; ps -eo pid,ppid,pcpu,pmem,rss,vsz,stat,comm >/dev/null'
 
 WORKDIR /data
-ENTRYPOINT ["/usr/local/bin/qrs"]
-CMD ["--help"]
+
+# Let Nextflow launch its task shell without an application entrypoint.
+CMD ["/usr/local/bin/qrs", "--help"]
