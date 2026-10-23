@@ -16,6 +16,7 @@ Options:
   -o, --out=OUT              Output file (default: QuickRunStats)
   -s, --subset=SUBSET        Read only N reads from each file. Use -1 for all reads (default: 1000000)
   -q, --minq=MINQ            Min base quality for stats reporting (default: 30)
+  --write_read_gc            Write per-read GC statistics (disabled by default)
 ```
 
 ## Description
@@ -28,7 +29,7 @@ Sample names are obtained from the header of BAM file(s) directly based on the @
 
 - 1 file with alignment stats `<outprefix>.reads_stat.tsv`
 - 2 files for sequencing run, one containing the instrument name(s), run id(s), and flowcell id(s) per sample `<outprefix>.rundetails.tsv`; one containing a summary of how many runs, flow cells and lanes where used for each sample `<outprefix>.per_sample_run.tsv`
-- 1 file per sample containing che GC fractions for all reads analyzed. These are saved in a folder named `<outprefix>.GCstats`
+- With `--write_read_gc`, 1 file per sample containing the GC fractions for all reads analyzed, saved as `<outprefix>.GC_stats/<sample>.GC_stats.tsv`. These files and their directory are skipped by default. Mean read GC is always included in the alignment statistics.
 
 ### read_stats.tsv
 

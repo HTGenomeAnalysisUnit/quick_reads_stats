@@ -11,12 +11,13 @@ import tables
 import times
 import strformat
 import std/algorithm
+import std/sequtils
 import stats
 import math
 import random
 from os import createDir
 
-const VERSION="0.1.1"
+const VERSION="0.1.2"
 const READNAMEIDX = (inst: 0, run: 1, flow: 2, lane: 3)
 
 type Region = tuple
@@ -58,19 +59,20 @@ proc count_above(x:seq[int], min: int): int =
     for val in x:
         if val >= min: result += 1
 
-proc save_empty_data(sid: string, outprefix: string) =
+proc save_empty_data(sid: string, outprefix: string, write_read_gc: bool) =
     var header: string
     header = &"SAMPLE\tMEAN_READLEN\tMIN_READLEN\tMEAN_BASEQ\tMEDIAN_BASEQ\tPERC_BASES_ABOVE_Q30\tMEAN_MAPQ\tMEDIAN_MAPQ\tDUP_RATE\tMEAN_READ_GC_PERC\n"
     var readstats_out = open(fmt"{outprefix}.read_stats.tsv", fmWrite) #read_stats
     readstats_out.write(header)
     readstats_out.close()
 
-    let outdir = fmt"{outprefix}.GC_stats"
-    createDir(outdir)
-    header = &"READ_IDX\tGC_PERC\n"
-    var gcperc_out = open(fmt"{outdir}/{sid}.GC_stats.tsv", fmWrite)
-    gcperc_out.write(header)
-    gcperc_out.close()
+    if write_read_gc:
+        let outdir = fmt"{outprefix}.GC_stats"
+        createDir(outdir)
+        header = &"READ_IDX\tGC_PERC\n"
+        var gcperc_out = open(fmt"{outdir}/{sid}.GC_stats.tsv", fmWrite)
+        gcperc_out.write(header)
+        gcperc_out.close()
 
     header = "SAMPLE\tINSTRUMENT\tRUN\tFLOWCELL\tLANE\n"
     var details_out = open(fmt"{outprefix}.rundetails.tsv", fmWrite)
@@ -168,12 +170,8 @@ proc main*() =
             tot_length = 0
             random_idx: seq[Region]
             rnd_region: Region
-            targets = b.hdr.targets
-            t_idx = 0
         let reg_exp = re"(chr){0,1}[0-9X]+$"
-        for t in targets:
-            if not t.name.match(reg_exp): targets.delete(t_idx)
-            t_idx += 1
+        let targets = b.hdr.targets.filterIt(it.name.match(reg_exp))
         for t in targets: 
             n_mapped += b.idx.stats(t.tid).mapped.int
             tot_length += t.length.int
@@ -223,7 +221,7 @@ proc main*() =
 
         if n_mapped == 0:
             echo fmt"WARNING: No mapped reads found in {inbam}"
-            save_empty_data(mysample, opts.out)
+            save_empty_data(mysample, opts.out, opts.write_read_gc)
             continue
 
         samplemeta[mysample] = emptyset
@@ -266,8 +264,9 @@ proc main*() =
     echo fmt"Run stats saved in {elapsed_time(t0)}"
     samplemeta.save_seq_stats(minq, opts.out)
     echo fmt"Sequencing stats saved in {elapsed_time(t0)}"
-    samplemeta.save_gc_stats(opts.out)
-    echo fmt"GC stats saved in {elapsed_time(t0)}"
+    if opts.write_read_gc:
+        samplemeta.save_gc_stats(opts.out)
+        echo fmt"GC stats saved in {elapsed_time(t0)}"
     #samplemeta.plotGC(opts.out)
     #echo fmt"GC plots saved in {elapsed_time(t0)}"
 

@@ -1,6 +1,6 @@
 # Package
 
-version       = "0.1.1"
+version       = "0.1.2"
 author        = "edoardo.giacopuzzi"
 description   = "Quickly collect essential read-level and alignment stats from Illumina NGS BAM files"
 license       = "MIT"
