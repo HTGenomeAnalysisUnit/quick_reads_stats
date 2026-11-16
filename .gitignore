@@ -4,6 +4,8 @@ test/
 # Local build artifacts
 local_compile.sh
 bin/
+/qrs
+__pycache__/
 
 # codex generated files
 .agents/
