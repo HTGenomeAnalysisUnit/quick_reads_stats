@@ -13,13 +13,14 @@ import math
 import random
 from os import createDir, walkPattern, fileExists
 
-const VERSION = "0.2.0"
+const VERSION = "0.2.1"
 const READNAMEIDX = (inst: 0, run: 1, flow: 2, lane: 3)
+const TARGET_BAM_WINDOWS = 500
 
-type Region = tuple
-    chrom: string
-    start: int
-    nreads: int
+type UnreadSpan = tuple
+    lo: int
+    skip_at_lo: int
+    hi: int
 
 type SampleStats = object
     is_fastq: bool
@@ -256,6 +257,95 @@ proc save_run_stats(x: OrderedTable[string, SampleStats], outprefix: string) =
 
         persample_out.write(&"{sid}\t{run_set.len}\t{flow_set.len}\t{n_lanes}\n")
 
+proc allocateTargetQuotas(mappedCounts: seq[int], totalMapped: int, maxReads: int): seq[int] =
+    let k = mappedCounts.len
+    result = newSeq[int](k)
+    if k == 0 or totalMapped <= 0 or maxReads <= 0:
+        return
+    var remainders = newSeq[tuple[frac: float, idx: int]](k)
+    var assigned = 0
+    for i in 0..<k:
+        if mappedCounts[i] <= 0:
+            remainders[i] = (0.0, i)
+            continue
+        let exact = maxReads.float * (mappedCounts[i].float / totalMapped.float)
+        let q = min(mappedCounts[i], int(floor(exact)))
+        result[i] = q
+        assigned += q
+        remainders[i] = (exact - floor(exact), i)
+
+    var rem = maxReads - assigned
+    if rem > 0:
+        # Shuffle before sorting by fractional remainder to break ties randomly
+        shuffle(remainders)
+        remainders.sort(proc(a, b: tuple[frac: float, idx: int]): int = cmp(b.frac, a.frac))
+        while rem > 0:
+            var progressed = false
+            for item in remainders:
+                if rem == 0:
+                    break
+                let idx = item.idx
+                if result[idx] < mappedCounts[idx]:
+                    inc result[idx]
+                    dec rem
+                    progressed = true
+            if not progressed:
+                break
+
+proc streamBamRecordDirect(
+    sdata: var SampleStats,
+    r: Record,
+    read_seq: var string,
+    b_quals: var seq[uint8],
+    n: var int,
+    interval: var int,
+    t0: var float,
+    write_run: bool,
+    gcOpen: bool,
+    gcFile: var File
+) {.inline.} =
+    inc n
+    var (dolog, log_msg) = progress_counter(n, interval, t0)
+    if dolog:
+        log("INFO", log_msg)
+
+    read_seq = r.sequence(read_seq)
+    b_quals = r.base_qualities(b_quals)
+    let
+        read_len = read_seq.len
+        gc_n = read_seq.count({'G', 'C', 'g', 'c'})
+        gc_perc = if read_len > 0: gc_n.float / read_len.float else: 0.0
+
+    inc sdata.n_reads
+    sdata.sum_readlen += read_len
+    if read_len < sdata.min_readlen:
+        sdata.min_readlen = read_len
+    sdata.mq_hist[int(r.mapping_quality)] += 1
+    for q in b_quals:
+        sdata.base_q_hist[int(q)] += 1
+    if r.flag.dup:
+        inc sdata.n_dup
+    if r.flag.proper_pair:
+        inc sdata.n_proper_pair
+    sdata.sum_gc_perc += gc_perc
+
+    let cigStats = computeCigarStats(r)
+    if cigStats.is_aligned:
+        inc sdata.n_aligned_reads
+        sdata.sum_error_rate += cigStats.error_rate
+        sdata.sum_indels += cigStats.indels
+
+    if write_run:
+        let qn = r.qname
+        let (qs, qe) = normFastqNameBounds(cstring(qn), qn.len)
+        let rkey = extractRunKey(cstring(qn), qs, qe)
+        if rkey.len > 0:
+            sdata.read_names.incl(rkey)
+
+    if gcOpen:
+        gcFile.write(&"{sdata.gc_written_idx}\t{gc_perc.formatFloat(precision = 4)}\n")
+        inc sdata.gc_written_idx
+
 proc processBamInputs(bamInputs: seq[string], max_reads: int, write_gc: bool, write_run: bool, outprefix: string, samplemeta: var OrderedTable[string, SampleStats]) =
     let bamPaths = expandInputPaths(bamInputs)
     let gcOutdir = fmt"{outprefix}.GC_stats"
@@ -276,33 +366,14 @@ proc processBamInputs(bamInputs: seq[string], max_reads: int, write_gc: bool, wr
             log("ERROR", fmt"Failed to open BAM/CRAM (or its index): {inbam}")
             quit QuitFailure
 
+        let targets = b.hdr.targets.filterIt(it.name.match(reg_exp))
         var
             n_mapped = 0
-            tot_length = 0
-            random_idx: seq[Region]
-            rnd_region: Region
-
-        let targets = b.hdr.targets.filterIt(it.name.match(reg_exp))
-        for t in targets:
-            n_mapped += b.idx.stats(t.tid).mapped.int
-            tot_length += t.length.int
-
-        if max_reads == -1 or n_mapped < max_reads:
-            for t in targets:
-                rnd_region.chrom = t.name
-                rnd_region.start = 1
-                rnd_region.nreads = b.idx.stats(t.tid).mapped.int
-                random_idx.add(rnd_region)
-        else:
-            for t in targets:
-                let target_weight = t.length.int / tot_length
-                let rnd_per_target = int(max_reads.float * target_weight)
-                let max_start = max(0, b.idx.stats(t.tid).mapped.int - rnd_per_target)
-
-                rnd_region.chrom = t.name
-                rnd_region.start = rand(max_start)
-                rnd_region.nreads = rnd_per_target
-                random_idx.add(rnd_region)
+            target_mapped = newSeq[int](targets.len)
+        for i, t in targets:
+            let m = b.idx.stats(t.tid).mapped.int
+            target_mapped[i] = m
+            n_mapped += m
 
         var rg_def: Table[string, string]
         var sample_ids: HashSet[string]
@@ -364,55 +435,116 @@ proc processBamInputs(bamInputs: seq[string], max_reads: int, write_gc: bool, wr
 
         template sdata(): var SampleStats = samplemeta[mysample]
 
-        for region in random_idx:
-            if region.nreads <= 0:
-                continue
-            var n_per_target = 0
-            for r in b.query(region.chrom, region.start):
-                if n_per_target == region.nreads:
-                    break
-                inc n_per_target
-                inc n
-                var (dolog, log_msg) = progress_counter(n, interval, t0)
-                if dolog:
-                    log("INFO", log_msg)
+        if max_reads == -1 or n_mapped <= max_reads:
+            for i, t in targets:
+                if target_mapped[i] <= 0:
+                    continue
+                for r in b.query(t.tid, 0, int(t.length)):
+                    if r.flag.unmapped:
+                        continue
+                    streamBamRecordDirect(sdata, r, read_seq, b_quals, n, interval, t0, write_run, gcOpen, gcFile)
+        else:
+            let quotas = allocateTargetQuotas(target_mapped, n_mapped, max_reads)
+            for i, t in targets:
+                let quota = quotas[i]
+                if quota <= 0:
+                    continue
+                let chromLen = max(1, int(t.length))
+                if quota >= target_mapped[i]:
+                    for r in b.query(t.tid, 0, chromLen):
+                        if r.flag.unmapped:
+                            continue
+                        streamBamRecordDirect(sdata, r, read_seq, b_quals, n, interval, t0, write_run, gcOpen, gcFile)
+                    continue
 
-                read_seq = r.sequence(read_seq)
-                b_quals = r.base_qualities(b_quals)
-                let
-                    read_len = read_seq.len
-                    gc_n = read_seq.count({'G', 'C', 'g', 'c'})
-                    gc_perc = if read_len > 0: gc_n.float / read_len.float else: 0.0
+                let maxWinForTarget = min(quota, chromLen)
+                let desiredWin = int(round(TARGET_BAM_WINDOWS.float * (quota.float / max_reads.float)))
+                let nWin = clamp(desiredWin, 1, maxWinForTarget)
+                let basePerWin = quota div nWin
+                let remPerWin = quota mod nWin
 
-                inc sdata.n_reads
-                sdata.sum_readlen += read_len
-                if read_len < sdata.min_readlen:
-                    sdata.min_readlen = read_len
-                sdata.mq_hist[int(r.mapping_quality)] += 1
-                for q in b_quals:
-                    sdata.base_q_hist[int(q)] += 1
-                if r.flag.dup:
-                    inc sdata.n_dup
-                if r.flag.proper_pair:
-                    inc sdata.n_proper_pair
-                sdata.sum_gc_perc += gc_perc
+                var
+                    collected = 0
+                    cursorPos: int64 = -1
+                    cursorPosCount = 0
+                    unreadGaps: seq[UnreadSpan]
 
-                let cigStats = computeCigarStats(r)
-                if cigStats.is_aligned:
-                    inc sdata.n_aligned_reads
-                    sdata.sum_error_rate += cigStats.error_rate
-                    sdata.sum_indels += cigStats.indels
+                for w in 0..<nWin:
+                    let winQuota = basePerWin + (if w < remPerWin: 1 else: 0)
+                    if winQuota <= 0:
+                        continue
+                    let segLo = int((int64(w) * int64(chromLen)) div int64(nWin))
+                    let segHi = max(segLo, int(((int64(w + 1) * int64(chromLen)) div int64(nWin)) - 1))
+                    let winStart = if segHi > segLo: segLo + rand(segHi - segLo) else: segLo
 
-                if write_run:
-                    let qn = r.qname
-                    let (qs, qe) = normFastqNameBounds(cstring(qn), qn.len)
-                    let rkey = extractRunKey(cstring(qn), qs, qe)
-                    if rkey.len > 0:
-                        sdata.read_names.incl(rkey)
+                    var queryPos: int
+                    var skipSamePos: int
+                    if int64(winStart) > cursorPos:
+                        if cursorPos < 0:
+                            if winStart > 0:
+                                unreadGaps.add((lo: 0, skip_at_lo: 0, hi: winStart))
+                        else:
+                            unreadGaps.add((lo: int(cursorPos), skip_at_lo: cursorPosCount, hi: winStart))
+                        queryPos = winStart
+                        skipSamePos = 0
+                    else:
+                        queryPos = int(cursorPos)
+                        skipSamePos = cursorPosCount
 
-                if gcOpen:
-                    gcFile.write(&"{sdata.gc_written_idx}\t{gc_perc.formatFloat(precision = 4)}\n")
-                    inc sdata.gc_written_idx
+                    if queryPos >= chromLen:
+                        break
+
+                    var gotInWin = 0
+                    for r in b.query(t.tid, queryPos, chromLen):
+                        if r.flag.unmapped:
+                            continue
+                        if r.start < int64(queryPos):
+                            continue
+                        if r.start == int64(queryPos) and skipSamePos > 0:
+                            dec skipSamePos
+                            continue
+
+                        streamBamRecordDirect(sdata, r, read_seq, b_quals, n, interval, t0, write_run, gcOpen, gcFile)
+                        if r.start == cursorPos:
+                            inc cursorPosCount
+                        else:
+                            cursorPos = r.start
+                            cursorPosCount = 1
+                        inc gotInWin
+                        inc collected
+                        if gotInWin == winQuota:
+                            break
+
+                    if gotInWin < winQuota:
+                        # Reached the end of mapped reads on this chromosome
+                        cursorPos = int64(chromLen)
+                        cursorPosCount = 0
+                        break
+
+                # Backfill any shortfall from untouched genomic intervals in random order
+                if collected < quota and unreadGaps.len > 0:
+                    shuffle(unreadGaps)
+                    for gap in unreadGaps:
+                        if collected >= quota:
+                            break
+                        if gap.lo >= gap.hi:
+                            continue
+                        var skipAtLo = gap.skip_at_lo
+                        for r in b.query(t.tid, gap.lo, gap.hi):
+                            if r.flag.unmapped:
+                                continue
+                            if r.start < int64(gap.lo):
+                                continue
+                            if r.start >= int64(gap.hi):
+                                break
+                            if r.start == int64(gap.lo) and skipAtLo > 0:
+                                dec skipAtLo
+                                continue
+
+                            streamBamRecordDirect(sdata, r, read_seq, b_quals, n, interval, t0, write_run, gcOpen, gcFile)
+                            inc collected
+                            if collected == quota:
+                                break
 
         if gcOpen:
             gcFile.close()

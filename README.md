@@ -25,7 +25,7 @@ Options:
 
 `qrs` subsets `N` random reads from input BAM/CRAM file(s) (`--bam`) or FASTQ/FASTQ.gz file(s) (`--fastq1` and optional `--fastq2`) and reports essential read-level and alignment statistics:
 
-- **BAM/CRAM mode (`--bam`)**: Samples `N` reads across canonical chromosomes (`(chr)?[0-9X]+`) using the index, computing read length, base quality, mapping quality, duplication rate, proper-pair rate, GC content, and CIGAR-based per-read error rate and indel event count. Sample names are extracted from `@RG` (`SM`) header tags.
+- **BAM/CRAM mode (`--bam`)**: Samples `N` reads across canonical chromosomes (`(chr)?[0-9X]+`) via stratified multi-window index jumps weighted by per-chromosome mapped read counts, computing read length, base quality, mapping quality, duplication rate, proper-pair rate, GC content, and CIGAR-based per-read error rate and indel event count. Sample names are extracted from `@RG` (`SM`) header tags.
 - **FASTQ mode (`--fastq1` [`--fastq2`])**: Samples `N` random reads uniformly across uncompressed or gzip/bgzip-compressed FASTQ file(s) via 1-pass reservoir sampling (or streams all reads when `-s -1`), computing read length, base quality, GC content, and — when `--fastq2` is provided — the fraction of reads having a mate pair (`PROPER_PAIR_RATE`). Alignment-only metrics are reported as `NA`.
 
 ## Output
@@ -91,5 +91,5 @@ docker run --rm qrs --help
 You can use the prebuilt Docker image from GitHub Container Registry:
 
 ```bash
-docker run --rm ghcr.io/htgenomeanalysisunit/quick_reads_stats:v0.2.0 --help
+docker run --rm ghcr.io/htgenomeanalysisunit/quick_reads_stats:v0.2.1 --help
 ```

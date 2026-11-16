@@ -189,6 +189,106 @@ class NewFeaturesTest(unittest.TestCase):
                             text=True, capture_output=True)
         self.assertNotEqual(r3.returncode, 0)
 
+    def test_bam_multiwindow_chromosome_wide_spread(self):
+        with tempfile.TemporaryDirectory(prefix="qrs-bam-spread-") as tmp:
+            root = Path(tmp)
+            sam = root / "spread.sam"
+            bam = root / "spread.bam"
+            prefix = root / "spread_out"
+
+            # 10 Mb chromosome with 1,000 mapped reads spaced every 10 kb:
+            # First 500 reads (0..5 Mb) have GC = 0.0; second 500 reads (5..10 Mb) have GC = 1.0.
+            header = [
+                "@HD\tVN:1.6\tSO:coordinate",
+                "@SQ\tSN:chr1\tLN:10000000",
+                "@RG\tID:rg1\tSM:spread_sample",
+            ]
+            records = []
+            for i in range(1000):
+                pos = i * 10000 + 100
+                seq = "ATATATATAT" if i < 500 else "GCGCGCGCGC"
+                records.append(
+                    f"A01:1:FC1:L{i}:1:1:1\t0\tchr1\t{pos}\t60\t10M\t*\t0\t0\t{seq}\tIIIIIIIIII\tRG:Z:rg1\tNM:i:0"
+                )
+            sam.write_text("\n".join(header + records) + "\n")
+            subprocess.run([samtools_bin(), "view", "-b", "-o", str(bam), str(sam)],
+                           check=True, capture_output=True)
+            subprocess.run([samtools_bin(), "index", str(bam)],
+                           check=True, capture_output=True)
+
+            run = subprocess.run(
+                [qrs_bin(), "--bam", str(bam), "--subset", "200",
+                 "--write_read_gc", "--write_run_stats", "--out", str(prefix)],
+                text=True, capture_output=True,
+            )
+            self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+
+            with (root / "spread_out.GC_stats/spread_sample.GC_stats.tsv").open() as handle:
+                gc_rows = list(csv.DictReader(handle, delimiter="\t"))
+            self.assertEqual(len(gc_rows), 200)
+
+            with (root / "spread_out.per_sample_run.tsv").open() as handle:
+                run_rows = list(csv.DictReader(handle, delimiter="\t"))
+            # Every read had a distinct lane tag L{i}, so N_LANES == 200 proves zero duplicate reads
+            self.assertEqual(int(run_rows[0]["N_LANES"]), 200)
+
+            with (root / "spread_out.read_stats.tsv").open() as handle:
+                summary = list(csv.DictReader(handle, delimiter="\t"))[0]
+            mean_gc = float(summary["MEAN_READ_GC_PERC"])
+            self.assertGreaterEqual(mean_gc, 0.35)
+            self.assertLessEqual(mean_gc, 0.65)
+
+    def test_bam_multiwindow_high_density_and_sparse_tail_backfill(self):
+        with tempfile.TemporaryDirectory(prefix="qrs-bam-edge-") as tmp:
+            root = Path(tmp)
+            sam = root / "edge.sam"
+            bam = root / "edge.bam"
+            prefix = root / "edge_out"
+
+            # chr1: LN=100 with 500 reads (mapped > chrom_len, multiple reads per coordinate)
+            # chr2: LN=1000000 with 500 reads clustered in first 500 bp (99.95% empty tail -> backfill)
+            header = [
+                "@HD\tVN:1.6\tSO:coordinate",
+                "@SQ\tSN:chr1\tLN:100",
+                "@SQ\tSN:chr2\tLN:1000000",
+                "@RG\tID:rg1\tSM:edge_sample",
+            ]
+            records = []
+            uid = 0
+            for pos in range(1, 91):
+                for _ in range(5):
+                    records.append(
+                        f"A01:1:FC1:U{uid}:1:1:1\t0\tchr1\t{pos}\t60\t10M\t*\t0\t0\tACGTACGTAC\tIIIIIIIIII\tRG:Z:rg1\tNM:i:0"
+                    )
+                    uid += 1
+            for pos in range(1, 501):
+                records.append(
+                    f"A01:1:FC1:U{uid}:1:1:1\t0\tchr2\t{pos}\t60\t10M\t*\t0\t0\tACGTACGTAC\tIIIIIIIIII\tRG:Z:rg1\tNM:i:0"
+                )
+                uid += 1
+
+            sam.write_text("\n".join(header + records) + "\n")
+            subprocess.run([samtools_bin(), "view", "-b", "-o", str(bam), str(sam)],
+                           check=True, capture_output=True)
+            subprocess.run([samtools_bin(), "index", str(bam)],
+                           check=True, capture_output=True)
+
+            run = subprocess.run(
+                [qrs_bin(), "--bam", str(bam), "--subset", "300",
+                 "--write_read_gc", "--write_run_stats", "--out", str(prefix)],
+                text=True, capture_output=True,
+            )
+            self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+
+            with (root / "edge_out.GC_stats/edge_sample.GC_stats.tsv").open() as handle:
+                gc_rows = list(csv.DictReader(handle, delimiter="\t"))
+            self.assertEqual(len(gc_rows), 300)
+
+            with (root / "edge_out.per_sample_run.tsv").open() as handle:
+                run_rows = list(csv.DictReader(handle, delimiter="\t"))
+            # Proves all 300 reads across Pass 1 + Pass 2 backfill are distinct
+            self.assertEqual(int(run_rows[0]["N_LANES"]), 300)
+
 
 if __name__ == "__main__":
     unittest.main()
